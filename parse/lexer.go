@@ -364,15 +364,23 @@ redo:
 				tok.Str = string(rune(ch))
 			}
 		case '~':
+			// Lua 5.3 spells inequality "~=" and both bitwise xor and
+			// bitwise not "~"; which of the last two it is falls out of the
+			// grammar rather than the lexer.
 			if sc.Peek() == '=' {
 				tok.Type = TNeq
 				tok.Str = "~="
 				sc.Next()
 			} else {
-				err = sc.Error("~", "Invalid '~' token")
+				tok.Type = ch
+				tok.Str = string(rune(ch))
 			}
 		case '<':
-			if sc.Peek() == '=' {
+			if sc.Peek() == '<' {
+				tok.Type = TShl
+				tok.Str = "<<"
+				sc.Next()
+			} else if sc.Peek() == '=' {
 				tok.Type = TLte
 				tok.Str = "<="
 				sc.Next()
@@ -381,7 +389,11 @@ redo:
 				tok.Str = string(rune(ch))
 			}
 		case '>':
-			if sc.Peek() == '=' {
+			if sc.Peek() == '>' {
+				tok.Type = TShr
+				tok.Str = ">>"
+				sc.Next()
+			} else if sc.Peek() == '=' {
 				tok.Type = TGte
 				tok.Str = ">="
 				sc.Next()
@@ -418,7 +430,20 @@ redo:
 				tok.Type = ch
 				tok.Str = string(rune(ch))
 			}
-		case '+', '*', '/', '%', '^', '#', '(', ')', '{', '}', ']', ';', ',':
+		case '/':
+			// Lua 5.3's floor division. A lone slash is still division.
+			if sc.Peek() == '/' {
+				tok.Type = TIDiv
+				tok.Str = "//"
+				sc.Next()
+			} else {
+				tok.Type = ch
+				tok.Str = string(rune(ch))
+			}
+		case '+', '*', '%', '^', '#', '(', ')', '{', '}', ']', ';', ',',
+			// Lua 5.3's bitwise and and or. Neither doubles as anything else,
+			// so they need no lookahead.
+			'&', '|':
 			tok.Type = ch
 			tok.Str = string(rune(ch))
 		default:

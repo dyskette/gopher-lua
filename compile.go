@@ -1223,7 +1223,7 @@ func compileExpr(context *funcContext, reg int, expr ast.Expr, ec *expcontext) i
 	case *ast.StringConcatOpExpr:
 		compileStringConcatOpExpr(context, reg, ex, ec)
 		return sused
-	case *ast.UnaryMinusOpExpr, *ast.UnaryNotOpExpr, *ast.UnaryLenOpExpr:
+	case *ast.UnaryMinusOpExpr, *ast.UnaryNotOpExpr, *ast.UnaryLenOpExpr, *ast.UnaryBNotOpExpr:
 		compileUnaryOpExpr(context, reg, ex, ec)
 		return sused
 	case *ast.RelationalOpExpr:
@@ -1297,6 +1297,12 @@ func constFold(exp ast.Expr) ast.Expr { // {{{
 				return &constLValueExpr{Value: luaModulo(lvalue, rvalue)}
 			case "^":
 				return &constLValueExpr{Value: LNumber(math.Pow(float64(lvalue), float64(rvalue)))}
+			case "&", "|", "~", "<<", ">>", "//":
+				// Not folded. These are integer operations on values the
+				// compiler holds as floats, and reproducing that here would
+				// mean a second implementation of the conversion rules to
+				// keep in step with the one in the VM.
+				return expr
 			default:
 				panic(fmt.Sprintf("unknown binop: %v", expr.Operator))
 			}
@@ -1457,6 +1463,18 @@ func compileArithmeticOpExpr(context *funcContext, reg int, expr *ast.Arithmetic
 		op = OP_MOD
 	case "^":
 		op = OP_POW
+	case "&":
+		op = OP_BAND
+	case "|":
+		op = OP_BOR
+	case "~":
+		op = OP_BXOR
+	case "<<":
+		op = OP_SHL
+	case ">>":
+		op = OP_SHR
+	case "//":
+		op = OP_IDIV
 	}
 	context.Code.AddABC(op, a, b, c, sline(expr))
 } // }}}
@@ -1509,6 +1527,9 @@ func compileUnaryOpExpr(context *funcContext, reg int, expr ast.Expr, ec *expcon
 			opcode = OP_NOT
 			operandexpr = ex.Expr
 		}
+	case *ast.UnaryBNotOpExpr:
+		opcode = OP_BNOT
+		operandexpr = ex.Expr
 	case *ast.UnaryLenOpExpr:
 		opcode = OP_LEN
 		operandexpr = ex.Expr

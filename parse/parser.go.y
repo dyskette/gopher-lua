@@ -61,10 +61,16 @@ import (
 %left TOr
 %left TAnd
 %left '>' '<' TGte TLte TEqeq TNeq
+/* Lua 5.3 places the bitwise operators between comparison and concatenation,
+   loosest first: or, then xor, then and, then the shifts. */
+%left '|'
+%left '~'
+%left '&'
+%left TShl TShr
 %right T2Comma
 %left '+' '-'
-%left '*' '/' '%'
-%right UNARY /* not # -(unary) */
+%left '*' '/' TIDiv '%'
+%right UNARY /* not # -(unary) ~(unary) */
 %right '^'
 
 %%
@@ -370,6 +376,30 @@ expr:
             $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "%", Rhs: $3}
             $$.SetLine($1.Line())
         } |
+        expr '&' expr {
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "&", Rhs: $3}
+            $$.SetLine($1.Line())
+        } |
+        expr '|' expr {
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "|", Rhs: $3}
+            $$.SetLine($1.Line())
+        } |
+        expr '~' expr {
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "~", Rhs: $3}
+            $$.SetLine($1.Line())
+        } |
+        expr TShl expr {
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "<<", Rhs: $3}
+            $$.SetLine($1.Line())
+        } |
+        expr TShr expr {
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: ">>", Rhs: $3}
+            $$.SetLine($1.Line())
+        } |
+        expr TIDiv expr {
+            $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "//", Rhs: $3}
+            $$.SetLine($1.Line())
+        } |
         expr '^' expr {
             $$ = &ast.ArithmeticOpExpr{Lhs: $1, Operator: "^", Rhs: $3}
             $$.SetLine($1.Line())
@@ -380,6 +410,10 @@ expr:
         } |
         TNot expr %prec UNARY {
             $$ = &ast.UnaryNotOpExpr{Expr: $2}
+            $$.SetLine($2.Line())
+        } |
+        '~' expr %prec UNARY {
+            $$ = &ast.UnaryBNotOpExpr{Expr: $2}
             $$.SetLine($2.Line())
         } |
         '#' expr %prec UNARY {

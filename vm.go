@@ -2203,7 +2203,36 @@ func init() {
 		func(L *LState, inst uint32, baseframe *callFrame) int { //OP_NOP
 			return 0
 		},
+		// The table is positional, so these follow OP_NOP exactly as the
+		// opcodes do. See opcode.go.
+		opArith,      // OP_BAND
+		opArith,      // OP_BOR
+		opArith,      // OP_BXOR
+		opArith,      // OP_SHL
+		opArith,      // OP_SHR
+		opArith,      // OP_IDIV
+		opBitwiseNot, // OP_BNOT
 	}
+}
+
+// opBitwiseNot implements Lua 5.3's unary ~.
+//
+// It reuses the binary machinery with the operand on both sides, which costs
+// nothing and keeps the conversion and metamethod rules in one place.
+func opBitwiseNot(L *LState, inst uint32, baseframe *callFrame) int { //OP_BNOT
+	reg := L.reg
+	cf := L.currentFrame
+	lbase := cf.LocalBase
+	A := int(inst>>18) & 0xff //GETA
+	RA := lbase + A
+	B := int(inst & 0x1ff) //GETB
+	v := L.rkValue(B)
+	if nm, ok := v.(LNumber); ok {
+		reg.SetNumber(RA, numberArith(L, OP_BNOT, nm, nm))
+	} else {
+		reg.Set(RA, objectArith(L, OP_BNOT, v, v))
+	}
+	return 0
 }
 
 func opArith(L *LState, inst uint32, baseframe *callFrame) int { //OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_POW
@@ -2277,6 +2306,66 @@ func luaModulo(lhs, rhs LNumber) LNumber {
 	return LNumber(v)
 }
 
+// toInteger converts a number for a bitwise operation.
+//
+// Lua 5.3 requires an integer here and raises rather than rounding: a value
+// with a fractional part has no integer representation, and quietly
+// truncating it would turn a mistake into a wrong answer. Numbers are held
+// as floats in this implementation, so the check is explicit.
+func toInteger(L *LState, v LNumber) int64 {
+	f := float64(v)
+	if math.IsNaN(f) || math.IsInf(f, 0) || f != math.Trunc(f) {
+		if L != nil {
+			L.RaiseError("number has no integer representation")
+		}
+		return 0
+	}
+	if f > maxExactInteger || f < -maxExactInteger {
+		// Numbers are float64 here, so past 2^53 an integer cannot be held
+		// exactly and a bitwise operation on one would return a
+		// plausible-looking wrong answer. Refusing is the lesser harm: these
+		// operations decrypt page addresses, and a silently wrong address is
+		// worse than a module that stops.
+		if L != nil {
+			L.RaiseError("number %v is too large for an exact integer operation", f)
+		}
+		return 0
+	}
+	return int64(f)
+}
+
+// maxExactInteger is the largest integer a float64 holds exactly, 2^53.
+const maxExactInteger = 1 << 53
+
+// fromInteger converts a bitwise result back, refusing one that would not
+// survive the trip.
+func fromInteger(L *LState, v int64) LNumber {
+	if v > maxExactInteger || v < -maxExactInteger {
+		if float64(v) != float64(int64(float64(v))) || int64(float64(v)) != v {
+			if L != nil {
+				L.RaiseError("result %d is too large for this implementation to represent exactly", v)
+			}
+			return 0
+		}
+	}
+	return LNumber(float64(v))
+}
+
+// shiftLeft implements both shifts.
+//
+// Lua 5.3 shifts logically on 64 bits: a negative count shifts the other way,
+// and a count of 64 or more yields zero rather than the machine's idea of an
+// over-shift.
+func shiftLeft(v, n int64) int64 {
+	if n <= -64 || n >= 64 {
+		return 0
+	}
+	if n >= 0 {
+		return int64(uint64(v) << uint(n))
+	}
+	return int64(uint64(v) >> uint(-n))
+}
+
 func numberArith(L *LState, opcode int, lhs, rhs LNumber) LNumber {
 	switch opcode {
 	case OP_ADD:
@@ -2293,6 +2382,20 @@ func numberArith(L *LState, opcode int, lhs, rhs LNumber) LNumber {
 		flhs := float64(lhs)
 		frhs := float64(rhs)
 		return LNumber(math.Pow(flhs, frhs))
+	case OP_IDIV:
+		return LNumber(math.Floor(float64(lhs) / float64(rhs)))
+	case OP_BAND:
+		return fromInteger(L, toInteger(L, lhs)&toInteger(L, rhs))
+	case OP_BOR:
+		return fromInteger(L, toInteger(L, lhs)|toInteger(L, rhs))
+	case OP_BXOR:
+		return fromInteger(L, toInteger(L, lhs)^toInteger(L, rhs))
+	case OP_SHL:
+		return fromInteger(L, shiftLeft(toInteger(L, lhs), toInteger(L, rhs)))
+	case OP_SHR:
+		return fromInteger(L, shiftLeft(toInteger(L, lhs), -toInteger(L, rhs)))
+	case OP_BNOT:
+		return fromInteger(L, ^toInteger(L, lhs))
 	}
 	panic("should not reach here")
 	return LNumber(0)
@@ -2313,6 +2416,20 @@ func objectArith(L *LState, opcode int, lhs, rhs LValue) LValue {
 		event = "__mod"
 	case OP_POW:
 		event = "__pow"
+	case OP_IDIV:
+		event = "__idiv"
+	case OP_BAND:
+		event = "__band"
+	case OP_BOR:
+		event = "__bor"
+	case OP_BXOR:
+		event = "__bxor"
+	case OP_SHL:
+		event = "__shl"
+	case OP_SHR:
+		event = "__shr"
+	case OP_BNOT:
+		event = "__bnot"
 	}
 	op := L.metaOp2(lhs, rhs, event)
 	if _, ok := op.(*LFunction); ok {

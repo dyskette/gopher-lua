@@ -96,8 +96,19 @@ const (
 	OP_VARARG /*     A B     R(A) R(A+1) ... R(A+B-1) = vararg            */
 
 	OP_NOP /* NOP */
+
+	/* Lua 5.3 bitwise operators and floor division. Appended rather than
+	   grouped with the other arithmetic so that no existing opcode is
+	   renumbered: the dispatch table is positional. */
+	OP_BAND /*      A B C   R(A) := RK(B) & RK(C)                           */
+	OP_BOR  /*      A B C   R(A) := RK(B) | RK(C)                           */
+	OP_BXOR /*      A B C   R(A) := RK(B) ~ RK(C)                           */
+	OP_SHL  /*      A B C   R(A) := RK(B) << RK(C)                          */
+	OP_SHR  /*      A B C   R(A) := RK(B) >> RK(C)                          */
+	OP_IDIV /*      A B C   R(A) := RK(B) // RK(C)                          */
+	OP_BNOT /*      A B     R(A) := ~R(B)                                   */
 )
-const opCodeMax = OP_NOP
+const opCodeMax = OP_BNOT
 
 type opArgMode int
 
@@ -168,6 +179,13 @@ var opProps = []opProp{
 	opProp{"CLOSURE", false, true, opArgModeU, opArgModeN, opTypeABx},
 	opProp{"VARARG", false, true, opArgModeU, opArgModeN, opTypeABC},
 	opProp{"NOP", false, false, opArgModeR, opArgModeN, opTypeASbx},
+	opProp{"BAND", false, true, opArgModeK, opArgModeK, opTypeABC},
+	opProp{"BOR", false, true, opArgModeK, opArgModeK, opTypeABC},
+	opProp{"BXOR", false, true, opArgModeK, opArgModeK, opTypeABC},
+	opProp{"SHL", false, true, opArgModeK, opArgModeK, opTypeABC},
+	opProp{"SHR", false, true, opArgModeK, opArgModeK, opTypeABC},
+	opProp{"IDIV", false, true, opArgModeK, opArgModeK, opTypeABC},
+	opProp{"BNOT", false, true, opArgModeR, opArgModeN, opTypeABC},
 }
 
 func opGetOpCode(inst uint32) int {

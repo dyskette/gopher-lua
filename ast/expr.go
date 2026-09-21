@@ -120,6 +120,12 @@ type UnaryMinusOpExpr struct {
 	Expr Expr
 }
 
+type UnaryBNotOpExpr struct {
+	ExprBase
+
+	Expr Expr
+}
+
 type UnaryNotOpExpr struct {
 	ExprBase
 	Expr Expr
